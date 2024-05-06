@@ -42,21 +42,57 @@ pub fn run(
     dry_run: bool,
     verbose: bool,
 ) -> Result<()> {
+    run_and_check(natives,
+           cost_table,
+           error_descriptions,
+           state,
+           package,
+           script_path,
+           script_name_opt,
+           signers,
+           txn_args,
+           vm_type_args,
+           gas_budget,
+           bytecode_version,
+           dry_run,
+           verbose
+    ).map(|_| ())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_and_check(
+    natives: impl IntoIterator<Item = NativeFunctionRecord>,
+    cost_table: &CostTable,
+    error_descriptions: &ErrorMapping,
+    state: &OnDiskStateView,
+    package: &CompiledPackage,
+    script_path: &Path,
+    script_name_opt: &Option<String>,
+    signers: &[String],
+    txn_args: &[TransactionArgument],
+    vm_type_args: Vec<TypeTag>,
+    gas_budget: Option<u64>,
+    bytecode_version: Option<u32>,
+    dry_run: bool,
+    verbose: bool,
+) -> Result<bool> {
     if !script_path.exists() {
         bail!("Script file {:?} does not exist", script_path)
     };
     let bytecode_version = get_bytecode_version_from_env(bytecode_version);
 
     let bytecode = if is_bytecode_file(script_path) {
-        assert!(
-            state.is_module_path(script_path) || !contains_module(script_path),
-            "Attempting to run module {:?} outside of the `storage/` directory.
-move run` must be applied to a module inside `storage/`",
-            script_path
-        );
+//         assert!(
+//             state.is_module_path(script_path) || !contains_module(script_path),
+//             "Attempting to run module {:?} outside of the `storage/` directory.
+// move run` must be applied to a module inside `storage/`",
+//             script_path
+//         );
         // script bytecode; read directly from file
+        println!("SKIP COMPILE... {:?}", script_path);
         fs::read(script_path)?
     } else {
+        println!("COMPILE...");
         // TODO(tzakian): support calling scripts in transitive deps
         let file_contents = std::fs::read_to_string(script_path)?;
         let script_opt = package
@@ -114,6 +150,7 @@ move run` must be applied to a module inside `storage/`",
     };
 
     if let Err(err) = res {
+        println!("ERR: {:?}", err);
         explain_execution_error(
             error_descriptions,
             err,
@@ -123,12 +160,12 @@ move run` must be applied to a module inside `storage/`",
             &vm_type_args,
             &signer_addresses,
             txn_args,
-        )
+        ).map(|_| false)
     } else {
         let (changeset, events) = session.finish().map_err(|e| e.into_vm_status())?;
         if verbose {
             explain_execution_effects(&changeset, &events, state)?
         }
-        maybe_commit_effects(!dry_run, changeset, events, state)
+        maybe_commit_effects(!dry_run, changeset, events, state).map(|_| true)
     }
 }
